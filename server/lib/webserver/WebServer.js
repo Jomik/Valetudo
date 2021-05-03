@@ -45,12 +45,13 @@ class WebServer {
         this.app.disable("x-powered-by");
         this.app.use(Middlewares.VersionMiddleware);
 
+        let clientMiddleware = this.createClientMiddleware();
         const authMiddleware = this.createAuthMiddleware();
-        const dynamicAuth = dynamicMiddleware.create([]);
-        this.app.use(dynamicAuth.handle());
+        const dynamic = dynamicMiddleware.create([clientMiddleware]);
+        this.app.use(dynamic.handle());
 
         if (this.webserverConfig.basicAuth.enabled === true) {
-            dynamicAuth.use(authMiddleware);
+            dynamic.use(authMiddleware);
             this.basicAuthInUse = true;
         }
 
@@ -59,12 +60,16 @@ class WebServer {
                 this.webserverConfig = this.config.get("webserver");
 
                 if (this.basicAuthInUse && !this.webserverConfig.basicAuth.enabled) {
-                    dynamicAuth.unuse(authMiddleware);
+                    dynamic.unuse(authMiddleware);
                     this.basicAuthInUse = false;
                 } else if (!this.basicAuthInUse && this.webserverConfig.basicAuth.enabled) {
-                    dynamicAuth.use(authMiddleware);
+                    dynamic.use(authMiddleware);
                     this.basicAuthInUse = true;
                 }
+
+                dynamic.unuse(clientMiddleware);
+                clientMiddleware = this.createClientMiddleware();
+                dynamic.use(clientMiddleware);
             }
         });
 
@@ -88,9 +93,6 @@ class WebServer {
         this.app.use("/api/v2/ntpclient/", new NTPClientRouter({config: this.config, ntpClient: options.ntpClient}).getRouter());
 
         this.app.use("/api/v2/timers/", new TimerRouter({config: this.config}).getRouter());
-
-        // TODO: This should point at a build
-        this.app.use(express.static(path.join(__dirname, "../../..", "client/lib")));
 
         this.app.get("/api/v2", (req, res) => {
             let endpoints = listEndpoints(this.app);
@@ -156,6 +158,15 @@ class WebServer {
                 Logger.error("Error in BasicAuthMiddleware", e);
             }
         };
+    }
+
+    /**
+     * @private
+     * @returns {(req: any, res: any, next: any) => void}
+     */
+    createClientMiddleware() {
+        // TODO: This should point at a build
+        return express.static(this.webserverConfig.client ?? path.join(__dirname, "../../..", "client/lib"));
     }
 
     /**
